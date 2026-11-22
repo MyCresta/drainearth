@@ -3,108 +3,89 @@ const EARTH_RADIUS_KM = 6371.0088;
 // Pixel edges span the full sphere. The first cell is at the northwest corner.
 export function cellAt({ width, height }, latitude, longitude) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return -1;
-  const degreesEast = ((longitude + 180) % 360 + 360) % 360;
-  const x = Math.min(width - 1, Math.floor(degreesEast * width / 360));
-  const y = Math.max(0, Math.min(height - 1, Math.floor((90 - latitude) * height / 180)));
+  const degreesEast = (((longitude + 180) % 360) + 360) % 360;
+  const x = Math.min(width - 1, Math.floor((degreesEast * width) / 360));
+  const y = Math.max(0, Math.min(height - 1, Math.floor(((90 - latitude) * height) / 180)));
   return y * width + x;
 }
 
 export async function loadTerrain(url, width, height) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('Could not load the elevation grid.');
-  const bytes = await response.arrayBuffer();
+  const spillUrl = new URL('spills.gz', new URL(url, document.baseURI));
+  const [elevationFile, spillFile] = await Promise.all([fetch(url), fetch(spillUrl)]);
+  if (!elevationFile.ok || !spillFile.ok) throw new Error('Could not load the ocean model.');
+  const [bytes, spillData] = await Promise.all([elevationFile.arrayBuffer(), spillFile.arrayBuffer()]);
+  const signature = new Uint8Array(spillData, 0, Math.min(2, spillData.byteLength));
+  const isGzip = signature[0] === 0x1f && signature[1] === 0x8b;
+  const spillBytes = isGzip
+    ? await new Response(
+        new Blob([spillData]).stream().pipeThrough(new DecompressionStream('gzip')),
+      ).arrayBuffer()
+    : spillData;
   if (bytes.byteLength !== width * height * 2) throw new Error('Unexpected elevation grid size.');
-  const data = new DataView(bytes);
-  const elevations = new Int16Array(width * height);
-  for (let i = 0; i < elevations.length; i++) elevations[i] = data.getInt16(i * 2, true);
-  return createTerrain(elevations, width, height);
+  return createTerrain(new Int16Array(bytes), width, height, spillBytes);
 }
 
-function visitNeighbors(index, width, count, visit) {
-  const x = index % width;
-  visit(x === 0 ? index + width - 1 : index - 1);
-  visit(x === width - 1 ? index - width + 1 : index + 1);
-  if (index >= width) visit(index - width);
-  if (index < count - width) visit(index + width);
-}
-
-export function createTerrain(elevation, width, height) {
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 ||
-      !(elevation instanceof Int16Array) || elevation.length !== width * height) {
-    throw new Error('Invalid elevation grid.');
-  }
-  // Below-datum land depressions can look like ocean by depth alone. Only the
-  // largest four-connected patch of negative cells participates in drainage.
-  const labels = new Int32Array(elevation.length);
-  const queue = new Int32Array(elevation.length);
-  let label = 0;
-  let largest = 0;
-  let largestSize = 0;
-  let tail = 0;
-  function enqueue(index) {
-    if (labels[index] || elevation[index] >= 0) return;
-    labels[index] = label;
-    queue[tail++] = index;
-  }
-  for (let i = 0; i < elevation.length; i++) {
-    if (labels[i] || elevation[i] >= 0) continue;
-    label++;
-    tail = 0;
-    enqueue(i);
-    for (let head = 0; head < tail; head++) {
-      visitNeighbors(queue[head], width, elevation.length, enqueue);
-    }
-    if (tail > largestSize) {
-      largestSize = tail;
-      largest = label;
+export function createTerrain(elevation, width, height, spillBytes) {
+  const count = width * height;
+  const header = new Int32Array(spillBytes, 4, 4);
+  if (
+    new DataView(spillBytes).getUint32(0) !== 0x53504c31 ||
+    header[0] !== width ||
+    header[1] !== height ||
+    spillBytes.byteLength !== 20 + count * 6 ||
+    elevation.length !== count
+  )
+    throw new Error('Unexpected spill network dimensions.');
+  const root = header[2],
+    oceanCount = header[3];
+  const parent = new Int32Array(spillBytes, 20, count);
+  const sill = new Int16Array(spillBytes, 20 + count * 4, count);
+  const ocean = new Uint8Array(count);
+  const head = new Int32Array(count),
+    next = new Int32Array(count);
+  for (let i = 0; i < count; i++) {
+    if (sill[i] === 32767) continue; // Present-day land or an isolated inland depression.
+    ocean[i] = 1;
+    parent[i] += i; // The on-disk parent index is relative.
+    if (i !== root) {
+      next[i] = head[parent[i]];
+      head[parent[i]] = i + 1;
     }
   }
-  const ocean = new Uint8Array(elevation.length);
-  if (largestSize) {
-    for (let i = 0; i < ocean.length; i++) ocean[i] = Number(labels[i] === largest);
+  // Parents precede children. This ordering is shared by every plug selection.
+  const order = new Int32Array(oceanCount);
+  order[0] = root;
+  let used = 1;
+  for (let i = 0; i < used; i++) {
+    for (let link = head[order[i]]; link; link = next[link - 1]) order[used++] = link - 1;
   }
+  if (used !== oceanCount) throw new Error('Incomplete spill network.');
   const rowArea = new Float64Array(height);
-  const longitudeSpan = 2 * Math.PI / width;
+  const longitudeSpan = (2 * Math.PI) / width;
   for (let y = 0; y < height; y++) {
     const north = Math.PI * (0.5 - y / height);
     const south = Math.PI * (0.5 - (y + 1) / height);
     rowArea[y] = EARTH_RADIUS_KM ** 2 * longitudeSpan * (Math.sin(north) - Math.sin(south));
   }
-  return { width, height, elevation, ocean, rowArea };
+  return { width, height, elevation, ocean, rowArea, parent, sill, root, order };
 }
 
 export function computeDrainage(terrain, plugIndex) {
-  const { elevation, width, ocean, rowArea } = terrain;
+  const { elevation, width, ocean, rowArea, parent, sill, root, order } = terrain;
   if (!Number.isInteger(plugIndex) || ocean[plugIndex] !== 1) {
     throw new RangeError('Place the plug in a connected ocean cell.');
   }
   const plugDepth = -elevation[plugIndex];
   const floor = new Int16Array(elevation.length);
-  // For every cell, find the lowest possible maximum bed elevation on any path
-  // to the plug. That saddle is the waterline at which the cell loses access.
-  // Integer elevations permit a monotone bucket queue. Store a cell index + 1
-  // in each link so the typed arrays' initial zero can represent an empty list.
-  const heads = new Int32Array(plugDepth + 1);
-  const next = new Int32Array(elevation.length);
-  let waterline = -plugDepth;
-  floor[plugIndex] = waterline;
-  heads[0] = plugIndex + 1;
-  function visit(index) {
-    if (!ocean[index] || floor[index] !== 0) return;
-    const saddle = Math.max(waterline, elevation[index]);
-    const bucket = saddle + plugDepth;
-    // Every later predecessor has a waterline at least this high.
-    floor[index] = saddle;
-    next[index] = heads[bucket];
-    heads[bucket] = index + 1;
+  // The maximum edge height on a minimum-spanning-tree path is the lowest
+  // possible saddle between the two sites in the original bathymetry graph.
+  // Seed the plug-to-root branch, then sweep outward into all its side branches.
+  floor[plugIndex] = -plugDepth;
+  for (let i = plugIndex; i !== root; i = parent[i]) {
+    floor[parent[i]] = Math.max(floor[i], sill[i]);
   }
-  for (let bucket = 0; bucket < heads.length; bucket++) {
-    waterline = bucket - plugDepth;
-    while (heads[bucket]) {
-      const index = heads[bucket] - 1;
-      heads[bucket] = next[index];
-      visitNeighbors(index, width, elevation.length, visit);
-    }
+  for (const i of order) {
+    if (floor[i] === 0) floor[i] = Math.max(floor[parent[i]], sill[i]);
   }
 
   // Integrate actual spherical cell areas into one-meter cutoff bands. The
@@ -145,8 +126,8 @@ export function getMetrics(model, requestedDrop) {
     drop,
     exposedKm2,
     retainedKm2: retainedArea[firstDisconnected],
-    removedKm3: removedVolume[band] + (drop - band) * activeArea[band] / 1000,
+    removedKm3: removedVolume[band] + ((drop - band) * activeArea[band]) / 1000,
     oceanKm2,
-    exposedPercent: 100 * exposedKm2 / oceanKm2
+    exposedPercent: (100 * exposedKm2) / oceanKm2,
   };
 }

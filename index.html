@@ -1,59 +1,280 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#080d13">
-  <meta name="description" content="Explore a satellite Earth, drain its oceans basin by basin, and follow real drifting buoys.">
-  <title>Pelagic | Earth Experiments</title>
-  <link rel="icon" href="./assets/pelagic.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css">
-</head>
-<body>
-<main id="world">
-  <canvas id="stars" aria-hidden="true"></canvas>
-  <canvas id="earth" tabindex="0" aria-label="Interactive Earth. Drag or use arrow keys to rotate, and scroll or use plus and minus to zoom. Press Enter to select the center while placing a plug or guess."></canvas>
-  <svg id="paths" aria-hidden="true"><path id="track-line"/><path id="guess-line"/></svg>
-  <div id="pin" hidden aria-hidden="true"><span class="pin-target"></span><span class="pin-line"></span><span class="pin-label" id="pin-label">Drain plug</span></div>
-  <div id="guess-pin" class="pin-dot" hidden aria-hidden="true"></div>
-  <div class="identity"><img src="./assets/pelagic.svg" width="42" height="42" alt=""><span>Pelagic</span><span class="brand-divider"></span><span class="brand-desc">Earth lab</span></div>
-  <div class="window-tools"><button class="icon-button" id="info" title="About these experiments" aria-label="About these experiments"></button><button class="icon-button" id="expand" title="Enter fullscreen" aria-label="Enter fullscreen"></button></div>
-  <section class="controls" aria-label="Experiment controls">
-    <div class="panel-heading">
-      <button id="switcher" aria-expanded="false" aria-controls="experiments"><span data-icon="layers"></span>Experiments<span data-icon="chevron"></span></button>
-      <div id="experiments" hidden><button data-mode="drain"><span data-icon="drop"></span>Drain Plug</button><button data-mode="bottle"><span data-icon="bottle"></span>Message in a Bottle</button></div>
-      <button id="fold" class="fold-btn" aria-label="Collapse experiment controls" aria-expanded="true"><span data-icon="chevron"></span></button>
-      <h1 id="title">Drain Plug</h1>
-      <p id="intro">Pull a plug in the ocean floor and watch the world beneath the waves emerge.</p>
-    </div>
-    <div id="panel-body">
-      <div id="drain-body">
-        <div class="level-chart">
-          <div class="level-readout"><label class="eyebrow" for="depth">Sea level</label><div><output id="level">0</output><span> m</span></div></div>
-          <svg id="profile" viewBox="0 0 160 62" preserveAspectRatio="none" role="img" aria-label="Seabed elevation profile through the plug">
-            <defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4"><path d="M-1 1l2-2M0 4l4-4M3 5l2-2" stroke="#7e8b87" stroke-width=".6" opacity=".48"/></pattern></defs>
-            <path id="profile-fill"/><path id="profile-hatch" fill="url(#hatch)"/><path id="profile-edge"/><path id="water-edge"/><circle id="profile-pt" r="2.7"/>
-          </svg>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#080d13" />
+    <meta
+      name="description"
+      content="Explore a satellite Earth, drain its oceans basin by basin, and follow real drifting buoys."
+    />
+    <title>Pelagic | Earth Experiments</title>
+    <link rel="icon" href="./assets/pelagic.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main id="world">
+      <canvas id="stars" aria-hidden="true"></canvas>
+      <canvas
+        id="earth"
+        tabindex="0"
+        aria-label="Interactive Earth. Drag or use arrow keys to rotate, and scroll or use plus and minus to zoom. Press Enter to select the center while placing a plug or guess."
+      ></canvas>
+      <svg id="paths" aria-hidden="true">
+        <path id="track-line" />
+        <circle id="track-start" r="3.6" hidden />
+        <path id="guess-line" />
+      </svg>
+      <div id="pin" hidden aria-hidden="true">
+        <span class="pin-target"></span><span class="pin-line"></span
+        ><span class="pin-label" id="pin-label">Drain plug</span>
+      </div>
+      <div id="guess-pin" class="pin-dot" hidden aria-hidden="true"></div>
+      <aside id="sample" hidden aria-label="Selected point">
+        <button id="sample-close" aria-label="Close point details">
+          <span data-icon="close"></span>
+        </button>
+        <div class="eyebrow" id="sample-kind"></div>
+        <strong id="sample-place"></strong>
+        <dl>
+          <div>
+            <dt id="sample-bed-label">Seabed</dt>
+            <dd id="sample-bed"></dd>
+          </div>
+          <div id="sample-surface-row">
+            <dt>Water surface</dt>
+            <dd id="sample-surface"></dd>
+          </div>
+          <div id="sample-column-row">
+            <dt>Water depth</dt>
+            <dd id="sample-column"></dd>
+          </div>
+        </dl>
+        <button id="sample-plug">Place plug here</button>
+      </aside>
+      <div class="identity">
+        <img src="./assets/pelagic.svg" width="42" height="42" alt="" /><span>Pelagic</span
+        ><span class="brand-divider"></span><span class="brand-desc">Earth lab</span>
+      </div>
+      <div class="window-tools">
+        <button
+          class="icon-button"
+          id="hide-ui"
+          title="Hide controls"
+          aria-label="Hide controls"
+          aria-pressed="false"
+        ></button
+        ><button
+          class="icon-button"
+          id="info"
+          title="About these experiments"
+          aria-label="About these experiments"
+        ></button
+        ><button
+          class="icon-button"
+          id="expand"
+          title="Enter fullscreen"
+          aria-label="Enter fullscreen"
+        ></button>
+      </div>
+      <section class="controls" aria-label="Experiment controls">
+        <div class="panel-heading">
+          <button id="switcher" aria-expanded="false" aria-controls="experiments">
+            <span data-icon="layers"></span>Experiments<span data-icon="chevron"></span>
+          </button>
+          <div id="experiments" hidden>
+            <button data-mode="drain"><span data-icon="drop"></span>Drain Plug</button
+            ><button data-mode="bottle"><span data-icon="bottle"></span>Message in a Bottle</button>
+          </div>
+          <button
+            id="fold"
+            class="fold-btn"
+            aria-label="Collapse experiment controls"
+            aria-expanded="true"
+          >
+            <span data-icon="chevron"></span>
+          </button>
+          <h1 id="title">Drain Plug</h1>
+          <p id="intro">Pull a plug in the ocean floor and watch the world beneath the waves emerge.</p>
         </div>
-        <input type="range" id="depth" min="0" max="5000" step="1" value="0" aria-label="Sea level drop in meters" disabled>
-        <div class="range-ends mono"><span>0 m</span><span id="limit">Seafloor</span></div>
-        <p id="exposure" class="exposure" hidden></p>
-        <div class="location-row"><span class="location-icon" data-icon="target"></span><div><span class="meta">Plug location</span><strong id="place">North Atlantic</strong></div><button class="small-icon" id="relocate" aria-label="Choose a new plug location" title="Choose a new plug location"><span data-icon="edit"></span></button></div>
-        <div id="plug-sites" hidden><div class="site-label">Or explore a basin</div><div class="sites-list"><button data-site="29.125,-41.125">North Atlantic</button><button data-site="36.55,21.13">Ionian Sea</button><button data-site="11.375,142.375">Mariana Trench</button></div></div>
-        <div class="actions"><button class="primary" id="drain-action" disabled><span data-icon="drain"></span><span id="drain-text">Pull the plug</span></button><button class="reset" id="reset" aria-label="Restore sea level" title="Restore sea level"><span data-icon="reset"></span></button></div>
+        <div id="panel-body">
+          <div id="drain-body">
+            <div class="level-chart">
+              <div class="level-readout">
+                <label class="eyebrow" for="depth">Sea level</label>
+                <div><output id="level">0</output><span> m</span></div>
+              </div>
+              <svg
+                id="profile"
+                viewBox="0 0 160 62"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label="Seabed elevation profile through the plug"
+              >
+                <defs>
+                  <pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4">
+                    <path
+                      d="M-1 1l2-2M0 4l4-4M3 5l2-2"
+                      stroke="#7e8b87"
+                      stroke-width=".6"
+                      opacity=".48"
+                    />
+                  </pattern>
+                </defs>
+                <path id="profile-fill" />
+                <path id="profile-hatch" fill="url(#hatch)" />
+                <path id="profile-edge" />
+                <path id="water-edge" />
+                <circle id="profile-pt" r="2.7" />
+              </svg>
+            </div>
+            <input
+              type="range"
+              id="depth"
+              min="0"
+              max="5000"
+              step="1"
+              value="0"
+              aria-label="Sea level drop in meters"
+              disabled
+            />
+            <div class="range-ends mono"><span>0 m</span><span id="limit">Seafloor</span></div>
+            <p id="exposure" class="exposure" hidden></p>
+            <div class="location-row">
+              <span class="location-icon" data-icon="target"></span>
+              <div>
+                <span class="meta">Plug location</span><strong id="place">North Atlantic</strong>
+              </div>
+              <button
+                class="small-icon"
+                id="relocate"
+                aria-label="Choose a new plug location"
+                title="Choose a new plug location"
+              >
+                <span data-icon="edit"></span>
+              </button>
+            </div>
+            <div id="plug-sites" hidden>
+              <div class="site-label">Or explore a basin</div>
+              <div class="sites-list">
+                <button data-site="29.125,-41.125">North Atlantic</button
+                ><button data-site="36.55,21.13">Ionian Sea</button
+                ><button data-site="11.375,142.375">Mariana Trench</button>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="primary" id="drain-action" disabled>
+                <span data-icon="drain"></span><span id="drain-text">Pull the plug</span></button
+              ><button class="reset" id="reset" aria-label="Restore sea level" title="Restore sea level">
+                <span data-icon="reset"></span>
+              </button>
+            </div>
+          </div>
+          <div id="bottle-body" hidden>
+            <div class="bottle-stats">
+              <div>
+                <div class="eyebrow" id="stat-name">Track shown</div>
+                <strong id="stat-value">Day 0–7</strong>
+              </div>
+              <span data-icon="bottle"></span>
+            </div>
+            <div class="location-row">
+              <span class="location-icon" data-icon="target"></span>
+              <div>
+                <span class="meta" id="round-label">Drifter location</span
+                ><strong id="round-place">Loading track…</strong>
+              </div>
+            </div>
+            <button class="primary" id="bottle-action" disabled>
+              <span data-icon="pin"></span><span id="bottle-text">Place a guess</span>
+            </button>
+          </div>
+        </div>
+      </section>
+      <div class="view-tools">
+        <button class="compass" id="home" title="Reset globe view" aria-label="Reset globe view">
+          <span>N</span
+          ><svg viewBox="0 0 24 27" aria-hidden="true">
+            <path d="M12 2 17 23 12 19Z" fill="#d9e0e1" />
+            <path d="M12 2 7 23 12 19Z" fill="#63757a" />
+          </svg>
+        </button>
+        <div class="zoom">
+          <button id="plus" title="Zoom in" aria-label="Zoom in"><span data-icon="plus"></span></button
+          ><button id="minus" title="Zoom out" aria-label="Zoom out">
+            <span data-icon="minus"></span>
+          </button>
+        </div>
       </div>
-      <div id="bottle-body" hidden>
-        <div class="bottle-stats"><div><div class="eyebrow" id="stat-name">Track shown</div><strong id="stat-value">Day 0–7</strong></div><span data-icon="bottle"></span></div>
-        <div class="location-row"><span class="location-icon" data-icon="target"></span><div><span class="meta" id="round-label">Drifter location</span><strong id="round-place">Loading track…</strong></div></div>
-        <button class="primary" id="bottle-action" disabled><span data-icon="pin"></span><span id="bottle-text">Place a guess</span></button>
+      <div id="notice" role="status" hidden></div>
+      <div class="foot-left" id="legend">
+        <span class="legend-item"><i class="ocean"></i>Ocean</span
+        ><span class="legend-item"><i class="dry"></i>Exposed seabed</span
+        ><span class="legend-item"><i class="trapped"></i>Trapped water</span>
       </div>
-    </div>
-  </section>
-  <div class="view-tools"><button class="compass" id="home" title="Reset globe view" aria-label="Reset globe view"><span>N</span><svg viewBox="0 0 24 27" aria-hidden="true"><path d="M12 2 17 23 12 19Z" fill="#d9e0e1"/><path d="M12 2 7 23 12 19Z" fill="#63757a"/></svg></button><div class="zoom"><button id="plus" title="Zoom in" aria-label="Zoom in"><span data-icon="plus"></span></button><button id="minus" title="Zoom out" aria-label="Zoom out"><span data-icon="minus"></span></button></div></div>
-  <div id="notice" role="status" hidden></div>
-  <div class="foot-left" id="legend"><span class="legend-item"><i class="ocean"></i>Ocean</span><span class="legend-item"><i class="dry"></i>Exposed seabed</span><span class="legend-item"><i class="trapped"></i>Trapped water</span></div>
-  <div class="gesture-hint"><span data-icon="mouse"></span><span class="desktop-hint">Drag to rotate <b>·</b> Scroll to zoom</span><span class="touch-hint">Drag to rotate <b>·</b> Pinch to zoom</span></div>
-  <div id="coordinates" class="mono"></div>
-</main>
-<dialog id="guide"><button id="close-guide" class="icon-button" aria-label="Close information"><span data-icon="close"></span></button><div class="eyebrow">Pelagic / Field notes</div><h2>Inside the experiments</h2><h3>Drain Plug</h3><p>Water drains as long as it can reach your plug. When a ridge emerges, the basin behind it keeps its water at the height of the underwater pass. The ocean stops falling when it reaches the plug.</p><p id="model-info">The model uses a 0.25° elevation grid. Narrow straits and small lakes can disappear at this scale. Drain speed is illustrative. Tides, erosion, ice and changes in gravity are outside the model.</p><h3>Message in a Bottle</h3><p>Follow a real drifting buoy for seven days, then mark where you think it was on day 30. Distance from its recorded position determines your score.</p><div class="source-links"><h3>Data sources</h3><a href="https://www.generic-mapping-tools.org/remote-datasets/earth-relief.html" target="_blank" rel="noreferrer">GMT Earth relief</a><a href="https://doi.org/10.25921/7ntx-z961" target="_blank" rel="noreferrer">NOAA Global Drifter Program</a><a id="image-source" href="https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography-bathymetry/" target="_blank" rel="noreferrer">NASA Blue Marble imagery</a></div></dialog>
-<script type="module" src="./app.js"></script>
-</body></html>
+      <div class="gesture-hint">
+        <span data-icon="mouse"></span
+        ><span class="desktop-hint"
+          >Drag to rotate <b>·</b> Scroll to zoom <b>·</b> Click to inspect</span
+        ><span class="touch-hint">Drag to rotate <b>·</b> Pinch to zoom</span>
+      </div>
+      <div id="coordinates" class="mono"></div>
+    </main>
+    <dialog id="guide">
+      <button id="close-guide" class="icon-button" aria-label="Close information">
+        <span data-icon="close"></span>
+      </button>
+      <div class="eyebrow">Pelagic / Field notes</div>
+      <h2>Inside the experiments</h2>
+      <h3>Drain Plug</h3>
+      <p>
+        Water drains as long as it can reach your plug. When a ridge emerges, the basin behind it keeps
+        its water at the height of the underwater pass. The ocean stops falling when it reaches the plug.
+      </p>
+      <p id="model-info">
+        Connections use 3-arcminute global bathymetry, finer 15-arcsecond data around six passages, and
+        three surveyed sill depths. The globe and area estimates are sampled at 0.25° intervals. Small
+        lakes and narrow channels can still be missed.
+      </p>
+      <p>
+        A deep Atlantic plug isolates the western Mediterranean at a 291 m drop in this model. Published
+        measurements put the controlling sill at Gibraltar around 284–290 m.
+      </p>
+      <p>
+        Drain time is illustrative. Terrain stays fixed, and the model omits tides, erosion, ice changes
+        and the effects of redistributing water on gravity.
+      </p>
+      <h3>Message in a Bottle</h3>
+      <p>
+        Follow a real drifting buoy for seven days, then mark where you think it was on day 30. Distance
+        from its recorded position determines your score.
+      </p>
+      <div class="source-links">
+        <h3>Data sources</h3>
+        <a href="https://emodnet.ec.europa.eu/en/bathymetry" target="_blank" rel="noreferrer"
+          >EMODnet Bathymetry</a
+        >
+        <a
+          href="https://github.com/MyCresta/drainearth/blob/main/EARTH-DATA.md"
+          target="_blank"
+          rel="noreferrer"
+          >Model resolution and measured sill depths</a
+        ><a
+          href="https://www.generic-mapping-tools.org/remote-datasets/earth-relief.html"
+          target="_blank"
+          rel="noreferrer"
+          >GMT Earth relief</a
+        ><a href="https://doi.org/10.25921/7ntx-z961" target="_blank" rel="noreferrer"
+          >NOAA Global Drifter Program</a
+        ><a
+          id="image-source"
+          href="https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography-bathymetry/"
+          target="_blank"
+          rel="noreferrer"
+          >NASA Blue Marble imagery</a
+        >
+      </div>
+    </dialog>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

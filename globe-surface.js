@@ -14,6 +14,7 @@ const fragmentSource = `
 precision highp float;
 varying vec2 v_sphere;
 uniform vec3 u_east, u_north, u_front;
+uniform vec2 u_terrain_size;
 uniform sampler2D u_earth, u_terrain, u_floor, u_shade, u_clouds;
 uniform float u_radius, u_level, u_grid, u_has_terrain, u_has_floors;
 const float PI = 3.14159265;
@@ -40,12 +41,15 @@ void main() {
   float lat = asin(clamp(normal.z, -1., 1.));
   vec2 uv = vec2(.5 + lon / (2.*PI), .5 - lat / PI);
   vec3 satellite = texture2D(u_earth, uv).rgb;
+  vec2 cellUV = (floor(uv * u_terrain_size) + .5) / max(u_terrain_size, vec2(1.));
   vec4 heights = texture2D(u_terrain, uv);
+  vec4 cell = texture2D(u_terrain, cellUV);
   float ground = elevation(heights);
   float hshade = texture2D(u_shade, uv).r - .5;
   float signal = satellite.b - max(satellite.r * 1.18, satellite.g * 1.12);
   float oceanImage = smoothstep(.008, .06, signal);
   float originalOcean = u_has_terrain > .5 ? heights.a : oceanImage;
+  float modelOcean = u_has_terrain > .5 ? step(.5, cell.a) : oceanImage;
   float coastBlend = 1. - smoothstep(30., 320., abs(ground));
   float water = mix(originalOcean, oceanImage, coastBlend * .92);
   vec3 land = pow(satellite, vec3(.79)) * vec3(1.05, 1.055, 1.025);
@@ -53,11 +57,11 @@ void main() {
   float depth = max(0., -ground);
   if (u_has_terrain < .5) depth = 3000.;
   float surface = 0.;
-  if (u_has_floors > .5) surface = max(u_level, elevation(texture2D(u_floor, uv)));
+  if (u_has_floors > .5) surface = max(u_level, elevation(texture2D(u_floor, cellUV)));
   float dry = 0.;
   if (u_level < -.5 && u_has_floors > .5) {
     float exposed = smoothstep(surface - 5., surface + .01, ground + 1.);
-    dry = originalOcean * exposed * smoothstep(.5, 5., -u_level);
+    dry = modelOcean * exposed * smoothstep(.5, 5., -u_level);
     depth = max(0., surface - ground);
   }
   vec3 shelf = vec3(.085, .39, .47);
@@ -66,7 +70,7 @@ void main() {
   vec3 waterColor = mix(shelf, slope, smoothstep(0., 470., depth));
   waterColor = mix(waterColor, deep, smoothstep(470., 5600., depth));
   waterColor += satellite * vec3(.22, .27, .31);
-  if (u_level < -.5 && surface > u_level + 1.) {
+  if (modelOcean > .5 && u_level < -.5 && surface > u_level + 1.) {
     vec3 trapped = mix(vec3(.25,.61,.53), vec3(.073,.32,.31), smoothstep(0.,2000.,depth));
     waterColor = mix(waterColor, trapped, .82);
   }
@@ -108,9 +112,12 @@ function shader(gl, type, source) {
 
 function buildGL(canvas, gl) {
   let program, buffer, uniforms, textures, drawLocation;
-  let hasTerrain = false, hasFloors = false, lost = false;
+  let hasTerrain = false,
+    hasFloors = false,
+    lost = false;
   function setup() {
-    const vs = shader(gl, gl.VERTEX_SHADER, vertexSource), fs = shader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+    const vs = shader(gl, gl.VERTEX_SHADER, vertexSource),
+      fs = shader(gl, gl.FRAGMENT_SHADER, fragmentSource);
     program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
@@ -120,7 +127,24 @@ function buildGL(canvas, gl) {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     gl.useProgram(program);
     uniforms = {};
-    for (const name of ['origin','extent','radius','east','north','front','earth','terrain','floor','shade','clouds','has_terrain','has_floors','level','grid']) {
+    for (const name of [
+      'terrain_size',
+      'origin',
+      'extent',
+      'radius',
+      'east',
+      'north',
+      'front',
+      'earth',
+      'terrain',
+      'floor',
+      'shade',
+      'clouds',
+      'has_terrain',
+      'has_floors',
+      'level',
+      'grid',
+    ]) {
       uniforms[name] = gl.getUniformLocation(program, 'u_' + name);
     }
     buffer = gl.createBuffer();
@@ -129,8 +153,14 @@ function buildGL(canvas, gl) {
     drawLocation = gl.getAttribLocation(program, 'a_position');
     gl.enableVertexAttribArray(drawLocation);
     gl.vertexAttribPointer(drawLocation, 2, gl.FLOAT, false, 0, 0);
-    const names = ['earth','terrain','floor','shade','clouds'];
-    const pixels = [[18,54,78,255],[128,0,0,255],[128,0,0,255],[128,128,128,255],[0,0,0,255]];
+    const names = ['earth', 'terrain', 'floor', 'shade', 'clouds'];
+    const pixels = [
+      [18, 54, 78, 255],
+      [128, 0, 0, 255],
+      [128, 0, 0, 255],
+      [128, 128, 128, 255],
+      [0, 0, 0, 255],
+    ];
     textures = names.map((name, index) => {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + index);
@@ -139,7 +169,17 @@ function buildGL(canvas, gl) {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(pixels[index]));
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        1,
+        1,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        new Uint8Array(pixels[index]),
+      );
       gl.uniform1i(uniforms[name], index);
       return t;
     });
@@ -150,7 +190,10 @@ function buildGL(canvas, gl) {
     hasFloors = false;
   }
   setup();
-  canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); lost = true; });
+  canvas.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    lost = true;
+  });
   canvas.addEventListener('webglcontextrestored', setup);
   function select(i) {
     gl.activeTexture(gl.TEXTURE0 + i);
@@ -169,7 +212,7 @@ function buildGL(canvas, gl) {
       image = small;
     }
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-    const pot = n => (n & (n - 1)) === 0;
+    const pot = (n) => (n & (n - 1)) === 0;
     if (pot(image.width) && pot(image.height)) {
       gl.generateMipmap(gl.TEXTURE_2D);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
@@ -181,49 +224,82 @@ function buildGL(canvas, gl) {
     const bytes = new Uint8Array(width * height * 4);
     for (let i = 0, j = 0; i < heights.length; i++, j += 4) {
       const h = heights[i] + 32768;
-      bytes[j] = h >> 8; bytes[j+1] = h & 255;
-      bytes[j+3] = ocean ? (ocean[i] ? 255 : 0) : (heights[i] < 0 ? 255 : 0);
+      bytes[j] = h >> 8;
+      bytes[j + 1] = h & 255;
+      bytes[j + 3] = ocean ? (ocean[i] ? 255 : 0) : heights[i] < 0 ? 255 : 0;
     }
     select(index);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
   }
   return {
-    setSatellite(image) { uploadImage(0, image); },
-    setShade(image) { uploadImage(3, image); },
-    setClouds(image) { uploadImage(4, image); },
-    setTerrain({elevation, ocean, width, height}) { uploadHeights(1, elevation, ocean, width, height); hasTerrain = true; },
-    setFloors(floors, width, height) { hasFloors = Boolean(floors); if (floors) uploadHeights(2, floors, null, width, height); },
-    render({layout, axes, zoom, level, grid}) {
+    setSatellite(image) {
+      uploadImage(0, image);
+    },
+    setShade(image) {
+      uploadImage(3, image);
+    },
+    setClouds(image) {
+      uploadImage(4, image);
+    },
+    setTerrain({ elevation, ocean, width, height }) {
+      if (!lost) gl.uniform2f(uniforms.terrain_size, width, height);
+      uploadHeights(1, elevation, ocean, width, height);
+      hasTerrain = true;
+    },
+    setFloors(floors, width, height) {
+      hasFloors = Boolean(floors);
+      if (floors) uploadHeights(2, floors, null, width, height);
+    },
+    render({ layout, axes, zoom, level, grid }) {
       if (lost) return;
-      const {width, height, cx, cy} = layout;
+      const { width, height, cx, cy } = layout;
       const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
-      const w = Math.round(width * pixelRatio), h = Math.round(height * pixelRatio);
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      const w = Math.round(width * pixelRatio),
+        h = Math.round(height * pixelRatio);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
       gl.viewport(0, 0, w, h);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.useProgram(program);
       const r = layout.radius * zoom;
-      gl.uniform2f(uniforms.origin, 2*cx/width-1, 1-2*cy/height);
-      gl.uniform2f(uniforms.extent, 2*r/width, 2*r/height);
+      gl.uniform2f(uniforms.origin, (2 * cx) / width - 1, 1 - (2 * cy) / height);
+      gl.uniform2f(uniforms.extent, (2 * r) / width, (2 * r) / height);
       gl.uniform1f(uniforms.radius, r);
-      gl.uniform1f(uniforms.level, level); gl.uniform1f(uniforms.grid, grid ? 1 : 0);
-      gl.uniform1f(uniforms.has_terrain, hasTerrain ? 1 : 0); gl.uniform1f(uniforms.has_floors, hasFloors ? 1 : 0);
-      gl.uniform3fv(uniforms.east, axes[0]); gl.uniform3fv(uniforms.north, axes[1]); gl.uniform3fv(uniforms.front, axes[2]);
+      gl.uniform1f(uniforms.level, level);
+      gl.uniform1f(uniforms.grid, grid ? 1 : 0);
+      gl.uniform1f(uniforms.has_terrain, hasTerrain ? 1 : 0);
+      gl.uniform1f(uniforms.has_floors, hasFloors ? 1 : 0);
+      gl.uniform3fv(uniforms.east, axes[0]);
+      gl.uniform3fv(uniforms.north, axes[1]);
+      gl.uniform3fv(uniforms.front, axes[2]);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     },
     destroy() {
-      textures.forEach(t => gl.deleteTexture(t));
-      gl.deleteBuffer(buffer); gl.deleteProgram(program);
+      textures.forEach((t) => gl.deleteTexture(t));
+      gl.deleteBuffer(buffer);
+      gl.deleteProgram(program);
     },
   };
 }
 
 export function createSurfaceRenderer(canvas) {
-  const options = { alpha: true, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'low-power' };
+  const options = {
+    alpha: true,
+    antialias: false,
+    depth: false,
+    stencil: false,
+    premultipliedAlpha: false,
+    powerPreference: 'low-power',
+  };
   const gl = canvas.getContext('webgl', options);
   if (gl) {
-    try { return buildGL(canvas, gl); }
-    catch (error) { console.warn('Using software globe rendering.', error); }
+    try {
+      return buildGL(canvas, gl);
+    } catch (error) {
+      console.warn('Using software globe rendering.', error);
+    }
   }
   return createCanvasSurface(canvas, Boolean(gl));
 }

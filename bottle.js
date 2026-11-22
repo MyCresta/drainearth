@@ -15,10 +15,11 @@ export function bottleResult(round, guess) {
   const rad = Math.PI / 180;
   const [guessLon, guessLat] = guess;
   const [targetLon, targetLat] = target;
-  const halfLat = (targetLat - guessLat) * rad / 2;
-  const halfLon = (targetLon - guessLon) * rad / 2;
-  const chord = Math.sin(halfLat) ** 2
-    + Math.cos(guessLat * rad) * Math.cos(targetLat * rad) * Math.sin(halfLon) ** 2;
+  const halfLat = ((targetLat - guessLat) * rad) / 2;
+  const halfLon = ((targetLon - guessLon) * rad) / 2;
+  const chord =
+    Math.sin(halfLat) ** 2 +
+    Math.cos(guessLat * rad) * Math.cos(targetLat * rad) * Math.sin(halfLon) ** 2;
   const distance = 2 * 6371.0088 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, chord))));
   return {
     target,
